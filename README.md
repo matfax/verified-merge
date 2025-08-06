@@ -136,29 +136,8 @@ Create a `.github/commit-instructions.md` file in your repository to provide cus
 ```
 
 
-<!-- action-docs-inputs -->
-## Input Parameters
-
-| Parameter | Required | Default | Description |
-|-----------|----------|---------|-------------|
-| `github-token` | No | `${{ github.token }}` | GitHub token for API access |
-| `anthropic-api-key` | No | - | Anthropic API key for Claude Code Action |
-| `claude-code-oauth-token` | No | - | Claude Code OAuth token for Claude Code Action |
-| `enable-claude-generation` | No | `true` | Enable Claude-powered commit message generation |
-| `check-timeout-seconds` | No | `900` | Max time to wait for checks (15 minutes) |
-| `conventional-commit-types` | No | `feat,fix,docs...` | Allowed commit types |
-<!-- action-docs-inputs -->
-
-<!-- action-docs-outputs -->
-## Output Values
-
-| Output | Description |
-|--------|-------------|
-| `action_taken` | Action performed: `none`, `graceful-exit`, `co-signed`, `squash-generated` |
-| `commit_sha` | SHA of the final commit (if modified) |
-| `merge_method` | The merge method used (`merge`, `rebase`, `squash`) |
-| `checks_status` | Status of all checks (`passed`, `failed`, `timeout`) |
-<!-- action-docs-outputs -->
+<!--- BEGIN_ACTION_DOCS --->
+<!--- END_ACTION_DOCS --->
 
 ## Examples
 
