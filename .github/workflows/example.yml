@@ -1,4 +1,4 @@
-name: Auto-Merge Enhanced Example
+name: Verified Auto-Merge Example
 
 on:
   pull_request:
@@ -19,8 +19,8 @@ jobs:
         uses: matfax/verified-merge@main
         with:
           # Anthropic API key authentication (choose one)
-          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
-          # claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           
           # Optional: Enable/disable Claude generation (default: true)
           enable-claude-generation: true
