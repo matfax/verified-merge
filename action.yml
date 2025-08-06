@@ -1,0 +1,448 @@
+name: 'Auto-Merge Enhanced Commit Processor'
+description: 'Processes pull requests on auto_merge_enabled events with intelligent commit message generation and co-signing'
+author: 'verified-merge'
+
+inputs:
+  github-token:
+    description: 'GitHub token for API access'
+    required: false
+    default: ${{ github.token }}
+  anthropic-api-key:
+    description: 'Anthropic API key for Claude Code Action'
+    required: false
+  claude-code-oauth-token:
+    description: 'Claude Code OAuth token for Claude Code Action'
+    required: false
+  enable-claude-generation:
+    description: 'Enable Claude-powered commit message generation (fallback to auto_merge properties if false)'
+    required: false
+    default: 'true'
+  check-timeout-seconds:
+    description: 'Maximum time to wait for all checks to complete (in seconds)'
+    required: false
+    default: '900'
+  conventional-commit-types:
+    description: 'Allowed conventional commit types (comma-separated)'
+    required: false
+    default: 'feat,fix,docs,style,refactor,test,chore,ci,perf,build'
+
+outputs:
+  action_taken:
+    description: 'Action taken (none, graceful-exit, co-signed, squash-generated)'
+    value: ${{ steps.set-output.outputs.action_taken }}
+  commit_sha:
+    description: 'SHA of the final commit (if modified)'
+    value: ${{ steps.create-commit.outputs.commit-sha }}
+  merge_method:
+    description: 'The merge method used (merge, rebase, squash)'
+    value: ${{ steps.validate-event.outputs.merge_method }}
+  checks_status:
+    description: 'Status of all checks (passed, failed, timeout)'
+    value: ${{ steps.wait-for-checks.outputs.status }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Validate Auto-Merge Event
+      id: validate-event
+      shell: bash
+      run: |
+        echo "Validating auto_merge_enabled event..."
+        
+        # Verify this is an auto_merge_enabled event
+        if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.event.action }}" != "auto_merge_enabled" ]; then
+          echo "Not an auto_merge_enabled event, exiting gracefully"
+          echo "event-valid=false" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Extract auto-merge configuration
+        PR_NUMBER="${{ github.event.number }}"
+        AUTO_MERGE_COMMIT_MESSAGE="${{ github.event.pull_request.auto_merge.commit_message }}"
+        AUTO_MERGE_COMMIT_TITLE="${{ github.event.pull_request.auto_merge.commit_title }}"
+        MERGE_METHOD="${{ github.event.pull_request.auto_merge.merge_method }}"
+        BASE_REF="${{ github.event.pull_request.base.ref }}"
+        HEAD_REF="${{ github.event.pull_request.head.ref }}"
+        
+        echo "Auto-merge enabled for PR #$PR_NUMBER"
+        echo "Merge method: $MERGE_METHOD"
+        echo "Base branch: $BASE_REF"
+        echo "Head branch: $HEAD_REF"
+        echo "Auto-merge commit title: $AUTO_MERGE_COMMIT_TITLE"
+        echo "Auto-merge commit message: $AUTO_MERGE_COMMIT_MESSAGE"
+        
+        echo "event-valid=true" >> $GITHUB_OUTPUT
+        echo "pr-number=$PR_NUMBER" >> $GITHUB_OUTPUT
+        echo "merge_method=$MERGE_METHOD" >> $GITHUB_OUTPUT
+        echo "base_ref=$BASE_REF" >> $GITHUB_OUTPUT
+        echo "head_ref=$HEAD_REF" >> $GITHUB_OUTPUT
+        echo "auto_merge_title=$AUTO_MERGE_COMMIT_TITLE" >> $GITHUB_OUTPUT
+        echo "auto_merge_message=$AUTO_MERGE_COMMIT_MESSAGE" >> $GITHUB_OUTPUT
+
+    - name: Wait for All Checks
+      id: wait-for-checks
+      if: steps.validate-event.outputs.event-valid == 'true'
+      uses: poseidon/wait-for-status-checks@v0.6.0
+      with:
+        token: ${{ inputs.github-token }}
+        timeout: ${{ inputs.check-timeout-seconds }}
+        interval: 30
+
+    - name: Early Exit for Failed Checks
+      if: steps.wait-for-checks.outputs.status != 'success'
+      shell: bash
+      run: |
+        echo "Exiting gracefully - checks did not pass or timed out"
+        echo "Status: ${{ steps.wait-for-checks.outputs.status }}"
+        exit 0
+
+    - name: Handle Merge Method Logic
+      id: merge-logic
+      if: steps.wait-for-checks.outputs.status == 'success'
+      shell: bash
+      run: |
+        MERGE_METHOD="${{ steps.validate-event.outputs.merge_method }}"
+        
+        echo "Processing merge method: $MERGE_METHOD"
+        
+        case "$MERGE_METHOD" in
+          "merge")
+            echo "Merge method is 'merge' - no action needed, exiting gracefully"
+            echo "action-needed=false" >> $GITHUB_OUTPUT
+            echo "reason=merge-method-no-action" >> $GITHUB_OUTPUT
+            ;;
+          "rebase")
+            echo "Merge method is 'rebase' - will check for co-signing opportunity"
+            echo "action-needed=true" >> $GITHUB_OUTPUT
+            echo "action-type=rebase" >> $GITHUB_OUTPUT
+            ;;
+          "squash")
+            echo "Merge method is 'squash' - will generate commit message and squash"
+            echo "action-needed=true" >> $GITHUB_OUTPUT
+            echo "action-type=squash" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "Unknown merge method: $MERGE_METHOD"
+            echo "action-needed=false" >> $GITHUB_OUTPUT
+            echo "reason=unknown-merge-method" >> $GITHUB_OUTPUT
+            ;;
+        esac
+
+    - name: Early Exit for No Action Needed
+      if: steps.merge-logic.outputs.action-needed == 'false'
+      shell: bash
+      run: |
+        echo "No action needed for this merge method or configuration"
+        echo "Reason: ${{ steps.merge-logic.outputs.reason }}"
+        exit 0
+
+    - name: Validate Authentication
+      id: validate-auth
+      if: steps.merge-logic.outputs.action-needed == 'true'
+      shell: bash
+      run: |
+        echo "Validating authentication for Claude generation..."
+        
+        # Check if Claude generation is enabled
+        if [ "${{ inputs.enable-claude-generation }}" != "true" ]; then
+          echo "Claude generation disabled, will use auto-merge fallback"
+          echo "auth-valid=false" >> $GITHUB_OUTPUT
+          echo "reason=disabled" >> $GITHUB_OUTPUT
+          exit 0
+        fi
+        
+        # Check authentication methods
+        HAS_API_KEY="false"
+        HAS_OAUTH_TOKEN="false"
+        
+        if [ -n "${{ inputs.anthropic-api-key }}" ]; then
+          HAS_API_KEY="true"
+        fi
+        
+        if [ -n "${{ inputs.claude-code-oauth-token }}" ]; then
+          HAS_OAUTH_TOKEN="true"
+        fi
+        
+        # Validate at least one authentication method is available
+        if [ "$HAS_API_KEY" = "true" ] || [ "$HAS_OAUTH_TOKEN" = "true" ]; then
+          echo "Authentication available for Claude generation"
+          echo "auth-valid=true" >> $GITHUB_OUTPUT
+        else
+          echo "No valid authentication found for Claude generation, will use auto-merge fallback"
+          echo "auth-valid=false" >> $GITHUB_OUTPUT
+          echo "reason=no-auth" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Checkout Repository
+      if: steps.merge-logic.outputs.action-needed == 'true'
+      uses: actions/checkout@v4
+      with:
+        token: ${{ inputs.github-token }}
+        ref: ${{ steps.validate-event.outputs.head_ref }}
+        fetch-depth: 0
+
+    - name: Analyze Commits and Extract Co-Authors
+      id: analyze-commits
+      if: steps.merge-logic.outputs.action-needed == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "Analyzing commits and extracting co-authors..."
+        
+        BASE_REF="${{ steps.validate-event.outputs.base_ref }}"
+        ACTION_TYPE="${{ steps.merge-logic.outputs.action-type }}"
+        
+        # Get all commits in the PR
+        ALL_COMMITS=$(git log --oneline "origin/${BASE_REF}"..HEAD)
+        COMMIT_COUNT=$(echo "$ALL_COMMITS" | wc -l)
+        echo "Found $COMMIT_COUNT commits in PR"
+        
+        # Extract co-authors based on action type
+        CO_AUTHORS=""
+        if [ "$ACTION_TYPE" = "rebase" ]; then
+          # For rebase, only get co-authors from the latest commit
+          LATEST_COMMIT_MSG=$(git log -1 --pretty=format:"%B")
+          CO_AUTHORS=$(echo "$LATEST_COMMIT_MSG" | grep -i "Co-authored-by:" || true)
+          
+          # Check if latest commit is unsigned (simple check)
+          LATEST_COMMIT_SIGNED=$(git log -1 --pretty=format:"%G?")
+          if [ "$LATEST_COMMIT_SIGNED" = "N" ] && [ "$COMMIT_COUNT" = "1" ]; then
+            echo "Latest commit is unsigned and only 1 commit - can co-sign"
+            echo "can-cosign=true" >> $GITHUB_OUTPUT
+          else
+            echo "Cannot co-sign: either signed already or multiple commits ($COMMIT_COUNT)"
+            echo "can-cosign=false" >> $GITHUB_OUTPUT
+          fi
+        elif [ "$ACTION_TYPE" = "squash" ]; then
+          # For squash, collect co-authors from all commits
+          ALL_COMMIT_MSGS=$(git log --pretty=format:"%B" "origin/${BASE_REF}"..HEAD)
+          CO_AUTHORS=$(echo "$ALL_COMMIT_MSGS" | grep -i "Co-authored-by:" | sort -u || true)
+          echo "can-cosign=true" >> $GITHUB_OUTPUT
+        fi
+        
+        # Add github-actions bot as co-author
+        GITHUB_BOT_COAUTHOR="Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        if [ -n "$CO_AUTHORS" ]; then
+          CO_AUTHORS=$(echo -e "$CO_AUTHORS\n$GITHUB_BOT_COAUTHOR")
+        else
+          CO_AUTHORS="$GITHUB_BOT_COAUTHOR"
+        fi
+        
+        echo "Co-authors to include:"
+        echo "$CO_AUTHORS"
+        
+        echo "co-authors<<EOF" >> $GITHUB_OUTPUT
+        echo "$CO_AUTHORS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        echo "commit-count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+
+    - name: Load Repository Configuration
+      id: load-config
+      if: steps.merge-logic.outputs.action-needed == 'true' && steps.merge-logic.outputs.action-type == 'squash' && steps.validate-auth.outputs.auth-valid == 'true'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "Loading repository-specific commit instructions..."
+        
+        # Try to read .github/commit-instructions.md from the consuming repository
+        CONFIG_CONTENT=""
+        if gh api repos/${{ github.repository }}/contents/.github/commit-instructions.md --silent 2>/dev/null; then
+          if ! CONFIG_CONTENT=$(gh api repos/${{ github.repository }}/contents/.github/commit-instructions.md --jq '.content' 2>/dev/null | base64 -d 2>/dev/null); then
+            echo "Error: Failed to decode repository commit instructions"
+            echo "Using fallback instructions instead"
+            CONFIG_CONTENT=$(cat "${{ github.action_path }}/default-commit-instructions.md")
+            echo "has-config=fallback" >> $GITHUB_OUTPUT
+          else
+            echo "Found repository commit instructions file"
+            echo "has-config=true" >> $GITHUB_OUTPUT
+          fi
+        else
+          echo "No repository commit instructions found, using action's fallback instructions"
+          # Read the fallback instructions from this action's repository
+          if ! CONFIG_CONTENT=$(cat "${{ github.action_path }}/default-commit-instructions.md"); then
+            echo "Error: Failed to read fallback commit instructions"
+            exit 1
+          fi
+          echo "has-config=fallback" >> $GITHUB_OUTPUT
+        fi
+        
+        # Save config content for later use (escape newlines)
+        echo "config-content<<EOF" >> $GITHUB_OUTPUT
+        echo "$CONFIG_CONTENT" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Analyze PR Context for Squash
+      id: analyze-context
+      if: steps.merge-logic.outputs.action-needed == 'true' && steps.merge-logic.outputs.action-type == 'squash'
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+      run: |
+        echo "Analyzing PR context for squash commit message..."
+        
+        PR_NUMBER="${{ steps.validate-event.outputs.pr_number }}"
+        
+        # Get PR details with error handling
+        if ! PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER 2>/dev/null); then
+          echo "Error: Failed to fetch PR data"
+          exit 1
+        fi
+        
+        PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
+        PR_BODY=$(echo "$PR_DATA" | jq -r '.body // ""')
+        
+        # Get PR comments (including bot feedback) with error handling
+        if ! COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --jq '.[].body' 2>/dev/null); then
+          echo "Warning: Failed to fetch PR comments, proceeding without them"
+          COMMENTS=""
+        fi
+        
+        echo "PR Title: $PR_TITLE"
+        
+        # Save data for processing
+        echo "pr-title=$PR_TITLE" >> $GITHUB_OUTPUT
+        echo "pr-body<<EOF" >> $GITHUB_OUTPUT
+        echo "$PR_BODY" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+        echo "comments<<EOF" >> $GITHUB_OUTPUT
+        echo "$COMMENTS" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Generate Commit Message with Claude
+      id: generate-message
+      if: steps.merge-logic.outputs.action-type == 'squash' && steps.validate-auth.outputs.auth-valid == 'true'
+      uses: anthropics/claude-code-action@b39377f9bcc6f88c9cd3e00e08f5423febff8dc5 # v0.0.52
+      with:
+        anthropic_api_key: ${{ inputs.anthropic-api-key }}
+        claude_code_oauth_token: ${{ inputs.claude-code-oauth-token }}
+        prompt: |
+          You are tasked with generating a conventional commit message for a squash merge.
+          
+          INSTRUCTIONS:
+          ${{ steps.load-config.outputs.config-content }}
+          
+          CONTEXT DATA:
+          - PR Title: ${{ steps.analyze-context.outputs.pr-title }}
+          - PR Body: ${{ steps.analyze-context.outputs.pr-body }}
+          - Number of commits: ${{ steps.analyze-commits.outputs.commit-count }}
+          - Auto-merge title: ${{ steps.validate-event.outputs.auto_merge_title }}
+          - Auto-merge message: ${{ steps.validate-event.outputs.auto_merge_message }}
+          - PR Comments: ${{ steps.analyze-context.outputs.comments }}
+          - Allowed commit types: ${{ inputs.conventional-commit-types }}
+          
+          Follow the instructions above to analyze the context and generate the appropriate conventional commit message. Pay special attention to the input prioritization guidelines.
+          
+          Respond with ONLY the commit message (title and body if needed), no additional text or formatting.
+
+    - name: Prepare Commit Message
+      id: prepare-message
+      if: steps.merge-logic.outputs.action-needed == 'true'
+      shell: bash
+      run: |
+        ACTION_TYPE="${{ steps.merge-logic.outputs.action-type }}"
+        
+        if [ "$ACTION_TYPE" = "squash" ]; then
+          # Use Claude-generated message if available, otherwise fallback to auto_merge properties
+          if [ "${{ steps.generate-message.outputs.response }}" != "" ]; then
+            COMMIT_MESSAGE="${{ steps.generate-message.outputs.response }}"
+            echo "Using Claude-generated commit message"
+          else
+            # Fallback to auto_merge properties
+            AUTO_TITLE="${{ steps.validate-event.outputs.auto_merge_title }}"
+            AUTO_MESSAGE="${{ steps.validate-event.outputs.auto_merge_message }}"
+            
+            if [ -n "$AUTO_TITLE" ]; then
+              COMMIT_MESSAGE="$AUTO_TITLE"
+              if [ -n "$AUTO_MESSAGE" ]; then
+                COMMIT_MESSAGE="$COMMIT_MESSAGE\n\n$AUTO_MESSAGE"
+              fi
+            else
+              COMMIT_MESSAGE="${{ steps.analyze-context.outputs.pr-title }}"
+            fi
+            echo "Using auto-merge fallback commit message"
+          fi
+        elif [ "$ACTION_TYPE" = "rebase" ]; then
+          # For rebase, get the original commit message
+          COMMIT_MESSAGE=$(git log -1 --pretty=format:"%s%n%n%b")
+          echo "Using original commit message for rebase"
+        fi
+        
+        # Add co-authors to commit message
+        CO_AUTHORS="${{ steps.analyze-commits.outputs.co-authors }}"
+        if [ -n "$CO_AUTHORS" ]; then
+          COMMIT_MESSAGE="$COMMIT_MESSAGE\n\n$CO_AUTHORS"
+        fi
+        
+        echo "Final commit message:"
+        echo "$COMMIT_MESSAGE"
+        
+        echo "commit-message<<EOF" >> $GITHUB_OUTPUT
+        echo -e "$COMMIT_MESSAGE" >> $GITHUB_OUTPUT
+        echo "EOF" >> $GITHUB_OUTPUT
+
+    - name: Process Rebase (Simple Case Only)
+      id: process-rebase
+      if: steps.merge-logic.outputs.action-type == 'rebase' && steps.analyze-commits.outputs.can-cosign == 'true'
+      shell: bash
+      run: |
+        echo "Processing rebase co-signing for single unsigned commit..."
+        
+        # Soft reset to uncomit the latest commit but keep changes staged
+        if ! git reset --soft HEAD~1; then
+          echo "Error: Failed to reset commit for rebase"
+          exit 1
+        fi
+        
+        echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
+
+    - name: Process Squash
+      id: process-squash
+      if: steps.merge-logic.outputs.action-type == 'squash'
+      shell: bash
+      run: |
+        echo "Processing squash - resetting to base and staging all changes..."
+        
+        BASE_REF="${{ steps.validate-event.outputs.base_ref }}"
+        
+        # Reset to base branch, keeping all changes staged
+        if ! git reset --soft "origin/${BASE_REF}"; then
+          echo "Error: Failed to reset to base branch for squash"
+          exit 1
+        fi
+        
+        echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
+
+    - name: Early Exit for Rebase (Complex Case)
+      if: steps.merge-logic.outputs.action-type == 'rebase' && steps.analyze-commits.outputs.can-cosign == 'false'
+      shell: bash
+      run: |
+        echo "Exiting gracefully - rebase with multiple commits or already signed commits not supported"
+        echo "Commit count: ${{ steps.analyze-commits.outputs.commit-count }}"
+        exit 0
+
+    - name: Create Signed Commit
+      id: create-commit
+      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit')
+      uses: iarekylew00t/verified-bot-commit@v1
+      with:
+        message: ${{ steps.prepare-message.outputs.commit-message }}
+        files: '*'
+
+    - name: Set Final Output
+      id: set-output
+      if: steps.create-commit.outputs.commit-sha != ''
+      shell: bash
+      run: |
+        ACTION_TYPE="${{ steps.merge-logic.outputs.action-type }}"
+        
+        if [ "$ACTION_TYPE" = "rebase" ]; then
+          echo "action_taken=co-signed" >> $GITHUB_OUTPUT
+        elif [ "$ACTION_TYPE" = "squash" ]; then
+          echo "action_taken=squash-generated" >> $GITHUB_OUTPUT
+        fi
+
+branding:
+  icon: 'git-merge'
+  color: 'purple'
