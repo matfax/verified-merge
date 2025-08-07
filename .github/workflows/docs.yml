@@ -8,6 +8,7 @@ on:
       - '**.md'
       - '**.tpl'
       - '**/docs.yml'
+      - '**/automerge.yml'
       - '**/action.yml'
   pull_request:
     branches:
@@ -16,6 +17,7 @@ on:
       - '**.md'
       - '**.tpl'
       - '**/docs.yml'
+      - '**/automerge.yml'
       - '**/action.yml'
 
 jobs:
