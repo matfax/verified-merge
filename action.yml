@@ -561,7 +561,7 @@ runs:
       if: always()
       with: 
         authToken: ${{ inputs.github-token }}
-        context: 'Auto-Merge Verification Helper'
+        context: 'Auto-Merge Helper'
         description: ${{ steps.set-failure-status.outputs.status_description }}
         state: ${{ steps.set-failure-status.outputs.failure_status }}
         sha: ${{github.event.pull_request.head.sha || github.sha}}

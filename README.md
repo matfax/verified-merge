@@ -107,15 +107,15 @@ To ensure the action works properly with GitHub's auto-merge feature, you need t
 
 2. **Deploy and Test First**:
    - Create a test PR and enable auto-merge to trigger the action once
-   - This creates the initial "Auto-Merge Verification Helper" status check
+   - This creates the initial "Auto-Merge Helper" status check
 
 3. **Enable Required Status Checks**:
    - Return to the same branch protection rule
    - Check ✅ **"Require status checks to pass before merging"**
-   - In the status checks list, select **"Auto-Merge Verification Helper"**
+   - In the status checks list, select **"Auto-Merge Helper"**
    - Optionally check "Require branches to be up to date before merging"
 
-> **Important**: The status check "Auto-Merge Verification Helper" only appears after the action runs at least once. Deploy the workflow first, then configure the branch protection rule.
+> **Important**: The status check "Auto-Merge Helper" only appears after the action runs at least once. Deploy the workflow first, then configure the branch protection rule.
 
 ### Advanced Configuration
 
