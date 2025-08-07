@@ -560,7 +560,7 @@ runs:
       uses: guibranco/github-status-action-v2@0849440ec82c5fa69b2377725b9b7852a3977e76 # v1.1.13
       if: always()
       with: 
-        authToken: ${{secrets.GITHUB_TOKEN}}
+        authToken: ${{ github.token }}
         context: 'Auto-Merge Verification Helper'
         description: ${{ steps.set-failure-status.outputs.status_description }}
         state: ${{ steps.set-failure-status.outputs.failure_status }}
