@@ -108,6 +108,7 @@ jobs:
     enable-claude-generation: true
     check-timeout-seconds: 1200
     conventional-commit-types: 'feat,fix,docs,style,refactor,test,chore,ci,perf,build'
+    ignore-workflows: 'Auto-Merge'  # Ignore the calling workflow to prevent self-referential failures
 ```
 
 ## Configuration
