@@ -43,6 +43,12 @@ outputs:
   checks_status:
     description: 'Status of all checks (passed, failed, timeout)'
     value: ${{ steps.wait-for-checks.outputs.status }}
+  failure_status:
+    description: 'Indicates if any step failed (success, failure)'
+    value: ${{ steps.set-failure-status.outputs.failure_status || 'success' }}
+  status_description:
+    description: 'Descriptive status message indicating what action was taken'
+    value: ${{ steps.set-failure-status.outputs.status_description || 'Unknown status' }}
 
 runs:
   using: 'composite'
@@ -57,6 +63,7 @@ runs:
         if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.event.action }}" != "auto_merge_enabled" ]; then
           echo "Not an auto_merge_enabled event, exiting gracefully"
           echo "event-valid=false" >> $GITHUB_OUTPUT
+          echo "status_description=Skipped - Not an auto_merge_enabled event" >> $GITHUB_OUTPUT
           exit 0
         fi
         
@@ -91,14 +98,17 @@ runs:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
         interval: 30
+        ignore_pattern: Auto-Merge*
         ignore: ${{ inputs.ignore-workflows }}
 
     - name: Early Exit for Failed Checks
+      id: early-exit-checks
       if: steps.wait-for-checks.outputs.status != 'success'
       shell: bash
       run: |
         echo "Exiting gracefully - checks did not pass or timed out"
         echo "Status: ${{ steps.wait-for-checks.outputs.status }}"
+        echo "status_description=Skipped - Checks did not pass or timed out" >> $GITHUB_OUTPUT
         exit 0
 
     - name: Handle Merge Method Logic
@@ -134,11 +144,17 @@ runs:
         esac
 
     - name: Early Exit for No Action Needed
+      id: early-exit-no-action
       if: steps.merge-logic.outputs.action-needed == 'false'
       shell: bash
       run: |
         echo "No action needed for this merge method or configuration"
         echo "Reason: ${{ steps.merge-logic.outputs.reason }}"
+        if [ "${{ steps.merge-logic.outputs.reason }}" = "merge-method-no-action" ]; then
+          echo "status_description=Skipped - Merge method requires no action" >> $GITHUB_OUTPUT
+        else
+          echo "status_description=Skipped - Unknown merge method" >> $GITHUB_OUTPUT
+        fi
         exit 0
 
     - name: Validate Authentication
@@ -210,14 +226,34 @@ runs:
           LATEST_COMMIT_MSG=$(git log -1 --pretty=format:"%B")
           CO_AUTHORS=$(echo "$LATEST_COMMIT_MSG" | grep -i "Co-authored-by:" || true)
           
-          # Check if latest commit is unsigned (simple check)
+          # Check commit signature status
           LATEST_COMMIT_SIGNED=$(git log -1 --pretty=format:"%G?")
-          if [ "$LATEST_COMMIT_SIGNED" = "N" ] && [ "$COMMIT_COUNT" = "1" ]; then
-            echo "Latest commit is unsigned and only 1 commit - can co-sign"
-            echo "can-cosign=true" >> $GITHUB_OUTPUT
+          
+          if [ "$COMMIT_COUNT" = "1" ]; then
+            if [ "$LATEST_COMMIT_SIGNED" = "N" ]; then
+              echo "Latest commit is unsigned and only 1 commit - can co-sign"
+              echo "can-cosign=true" >> $GITHUB_OUTPUT
+              echo "cosign-reason=unsigned-single" >> $GITHUB_OUTPUT
+            elif [ "$LATEST_COMMIT_SIGNED" = "G" ] || [ "$LATEST_COMMIT_SIGNED" = "U" ]; then
+              # Check if github-actions bot is already a co-author
+              if echo "$CO_AUTHORS" | grep -q "github-actions\[bot\]"; then
+                echo "Latest commit is already signed with github-actions bot co-author - no action needed"
+                echo "can-cosign=false" >> $GITHUB_OUTPUT
+                echo "cosign-reason=already-cosigned" >> $GITHUB_OUTPUT
+              else
+                echo "Latest commit is signed but missing github-actions bot co-author - can co-sign"
+                echo "can-cosign=true" >> $GITHUB_OUTPUT
+                echo "cosign-reason=signed-missing-bot" >> $GITHUB_OUTPUT
+              fi
+            else
+              echo "Latest commit has invalid signature - can co-sign"
+              echo "can-cosign=true" >> $GITHUB_OUTPUT
+              echo "cosign-reason=invalid-signature" >> $GITHUB_OUTPUT
+            fi
           else
-            echo "Cannot co-sign: either signed already or multiple commits ($COMMIT_COUNT)"
+            echo "Cannot co-sign: multiple commits ($COMMIT_COUNT)"
             echo "can-cosign=false" >> $GITHUB_OUTPUT
+            echo "cosign-reason=multiple-commits" >> $GITHUB_OUTPUT
           fi
         elif [ "$ACTION_TYPE" = "squash" ]; then
           # For squash, collect co-authors from all commits
@@ -268,7 +304,9 @@ runs:
           # Read the fallback instructions from this action's repository
           if ! CONFIG_CONTENT=$(cat "${{ github.action_path }}/default-commit-instructions.md"); then
             echo "Error: Failed to read fallback commit instructions"
-            exit 1
+            echo "has-error=true" >> $GITHUB_OUTPUT
+            echo "status_description=Failed - Could not read commit instructions" >> $GITHUB_OUTPUT
+            exit 0
           fi
           echo "has-config=fallback" >> $GITHUB_OUTPUT
         fi
@@ -292,7 +330,9 @@ runs:
         # Get PR details with error handling
         if ! PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER 2>/dev/null); then
           echo "Error: Failed to fetch PR data"
-          exit 1
+          echo "has-error=true" >> $GITHUB_OUTPUT
+          echo "status_description=Failed - Could not fetch PR data" >> $GITHUB_OUTPUT
+          exit 0
         fi
         
         PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
@@ -397,7 +437,9 @@ runs:
         # Soft reset to uncomit the latest commit but keep changes staged
         if ! git reset --soft HEAD~1; then
           echo "Error: Failed to reset commit for rebase"
-          exit 1
+          echo "has-error=true" >> $GITHUB_OUTPUT
+          echo "status_description=Failed - Git reset failed for rebase" >> $GITHUB_OUTPUT
+          exit 0
         fi
         
         echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
@@ -414,22 +456,39 @@ runs:
         # Reset to base branch, keeping all changes staged
         if ! git reset --soft "origin/${BASE_REF}"; then
           echo "Error: Failed to reset to base branch for squash"
-          exit 1
+          echo "has-error=true" >> $GITHUB_OUTPUT
+          echo "status_description=Failed - Git reset failed for squash" >> $GITHUB_OUTPUT
+          exit 0
         fi
         
         echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
 
     - name: Early Exit for Rebase (Complex Case)
+      id: early-exit-rebase-complex
       if: steps.merge-logic.outputs.action-type == 'rebase' && steps.analyze-commits.outputs.can-cosign == 'false'
       shell: bash
       run: |
-        echo "Exiting gracefully - rebase with multiple commits or already signed commits not supported"
+        REASON="${{ steps.analyze-commits.outputs.cosign-reason }}"
+        echo "Exiting gracefully - rebase processing not needed or not supported"
+        echo "Reason: $REASON"
         echo "Commit count: ${{ steps.analyze-commits.outputs.commit-count }}"
+        
+        case "$REASON" in
+          "already-cosigned")
+            echo "status_description=Skipped - Commit already properly signed and co-signed" >> $GITHUB_OUTPUT
+            ;;
+          "multiple-commits")
+            echo "status_description=Skipped - Rebase with multiple commits not supported" >> $GITHUB_OUTPUT
+            ;;
+          *)
+            echo "status_description=Skipped - Rebase not applicable" >> $GITHUB_OUTPUT
+            ;;
+        esac
         exit 0
 
     - name: Create Signed Commit
       id: create-commit
-      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit')
+      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit') && steps.load-config.outputs.has-error != 'true' && steps.analyze-context.outputs.has-error != 'true' && steps.process-rebase.outputs.has-error != 'true' && steps.process-squash.outputs.has-error != 'true'
       uses: iarekylew00t/verified-bot-commit@v1
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
@@ -444,9 +503,68 @@ runs:
         
         if [ "$ACTION_TYPE" = "rebase" ]; then
           echo "action_taken=co-signed" >> $GITHUB_OUTPUT
+          echo "status_description=Co-signed commit created" >> $GITHUB_OUTPUT
         elif [ "$ACTION_TYPE" = "squash" ]; then
           echo "action_taken=squash-generated" >> $GITHUB_OUTPUT
+          echo "status_description=Squash commit created" >> $GITHUB_OUTPUT
         fi
+    
+    - name: Set Failure Status
+      id: set-failure-status
+      if: always()
+      shell: bash
+      run: |
+        # Collect status description from various steps
+        STATUS_DESCRIPTION=""
+        STATUS_STATE="success"
+        
+        # Check for error states first
+        if [ "${{ steps.load-config.outputs.has-error }}" = "true" ] || \
+           [ "${{ steps.analyze-context.outputs.has-error }}" = "true" ] || \
+           [ "${{ steps.process-rebase.outputs.has-error }}" = "true" ] || \
+           [ "${{ steps.process-squash.outputs.has-error }}" = "true" ]; then
+          STATUS_STATE="failure"
+          # Get the specific error description
+          if [ "${{ steps.load-config.outputs.status_description }}" != "" ]; then
+            STATUS_DESCRIPTION="${{ steps.load-config.outputs.status_description }}"
+          elif [ "${{ steps.analyze-context.outputs.status_description }}" != "" ]; then
+            STATUS_DESCRIPTION="${{ steps.analyze-context.outputs.status_description }}"
+          elif [ "${{ steps.process-rebase.outputs.status_description }}" != "" ]; then
+            STATUS_DESCRIPTION="${{ steps.process-rebase.outputs.status_description }}"
+          elif [ "${{ steps.process-squash.outputs.status_description }}" != "" ]; then
+            STATUS_DESCRIPTION="${{ steps.process-squash.outputs.status_description }}"
+          else
+            STATUS_DESCRIPTION="Failed - Unknown error occurred"
+          fi
+        # Check for successful completion
+        elif [ "${{ steps.set-output.outputs.status_description }}" != "" ]; then
+          STATUS_DESCRIPTION="${{ steps.set-output.outputs.status_description }}"
+        # Check for early exits/skips
+        elif [ "${{ steps.validate-event.outputs.status_description }}" != "" ]; then
+          STATUS_DESCRIPTION="${{ steps.validate-event.outputs.status_description }}"
+        elif [ "${{ steps.early-exit-checks.outputs.status_description }}" != "" ]; then
+          STATUS_DESCRIPTION="${{ steps.early-exit-checks.outputs.status_description }}"
+        elif [ "${{ steps.early-exit-no-action.outputs.status_description }}" != "" ]; then
+          STATUS_DESCRIPTION="${{ steps.early-exit-no-action.outputs.status_description }}"
+        elif [ "${{ steps.early-exit-rebase-complex.outputs.status_description }}" != "" ]; then
+          STATUS_DESCRIPTION="${{ steps.early-exit-rebase-complex.outputs.status_description }}"
+        else
+          STATUS_DESCRIPTION="Processed - No commit changes needed"
+        fi
+        
+        echo "Status: $STATUS_DESCRIPTION"
+        echo "failure_status=$STATUS_STATE" >> $GITHUB_OUTPUT
+        echo "status_description=$STATUS_DESCRIPTION" >> $GITHUB_OUTPUT
+    
+    - name: Add Status Check
+      uses: guibranco/github-status-action-v2@0849440ec82c5fa69b2377725b9b7852a3977e76 # v1.1.13
+      if: always()
+      with: 
+        authToken: ${{secrets.GITHUB_TOKEN}}
+        context: 'Auto-Merge Verification Helper'
+        description: ${{ steps.set-failure-status.outputs.status_description }}
+        state: ${{ steps.set-failure-status.outputs.failure_status }}
+        sha: ${{github.event.pull_request.head.sha || github.sha}}
 
 branding:
   icon: 'git-merge'

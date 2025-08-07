@@ -96,6 +96,27 @@ jobs:
 
 > **Alternative:** Claude Pro/Max users can use OAuth tokens instead. See [Advanced Configuration](#advanced-configuration) below.
 
+### 3. Configure Branch Protection Rules
+
+To ensure the action works properly with GitHub's auto-merge feature, you need to set up branch protection rules:
+
+1. **Enable Required Signed Commits**:
+   - Go to your repository's Settings → Branches
+   - Add or edit a branch protection rule for your main branch
+   - Check ✅ **"Require signed commits"**
+
+2. **Deploy and Test First**:
+   - Create a test PR and enable auto-merge to trigger the action once
+   - This creates the initial "Auto-Merge Verification Helper" status check
+
+3. **Enable Required Status Checks**:
+   - Return to the same branch protection rule
+   - Check ✅ **"Require status checks to pass before merging"**
+   - In the status checks list, select **"Auto-Merge Verification Helper"**
+   - Optionally check "Require branches to be up to date before merging"
+
+> **Important**: The status check "Auto-Merge Verification Helper" only appears after the action runs at least once. Deploy the workflow first, then configure the branch protection rule.
+
 ### Advanced Configuration
 
 ```yaml
@@ -249,3 +270,4 @@ This composite action uses the following GitHub Actions:
 - [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) - Claude AI integration
 - [`iarekylew00t/verified-bot-commit`](https://github.com/iarekylew00t/verified-bot-commit) - Create signed commits
 - [`actions/checkout`](https://github.com/actions/checkout) - Repository checkout
+- [`guibranco/github-status-action-v2`](https://github.com/guibranco/github-status-action-v2) - Set commit status checks
