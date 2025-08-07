@@ -42,7 +42,7 @@ outputs:
     value: ${{ steps.validate-event.outputs.merge_method }}
   checks_status:
     description: 'Status of all checks (passed, failed, timeout)'
-    value: ${{ steps.wait-for-checks.outputs.status }}
+    value: ${{ steps.wait-for-checks.outcome }}
   failure_status:
     description: 'Indicates if any step failed (success, failure)'
     value: ${{ steps.set-failure-status.outputs.failure_status || 'success' }}
@@ -103,17 +103,17 @@ runs:
 
     - name: Early Exit for Failed Checks
       id: early-exit-checks
-      if: steps.wait-for-checks.outputs.status != 'success'
+      if: steps.wait-for-checks.outcome != 'success'
       shell: bash
       run: |
         echo "Exiting gracefully - checks did not pass or timed out"
-        echo "Status: ${{ steps.wait-for-checks.outputs.status }}"
+        echo "Status: ${{ steps.wait-for-checks.outcome }}"
         echo "status_description=Skipped - Checks did not pass or timed out" >> $GITHUB_OUTPUT
         exit 0
 
     - name: Handle Merge Method Logic
       id: merge-logic
-      if: steps.wait-for-checks.outputs.status == 'success'
+      if: steps.wait-for-checks.outcome == 'success'
       shell: bash
       run: |
         MERGE_METHOD="${{ steps.validate-event.outputs.merge_method }}"
