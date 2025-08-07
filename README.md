@@ -198,8 +198,8 @@ permissions:
   id-token: write      # Required for verified commit signing
 
 jobs:
-  helper:
-    name: Helper
+  automerge-helper:
+    name: Auto-Merge Helper
     environment: claude
     runs-on: ubuntu-latest
     steps:
