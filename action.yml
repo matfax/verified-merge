@@ -90,7 +90,7 @@ runs:
       with:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
-        interval: 30
+        interval: 10
         ignore_pattern: '[Aa]uto-[Mm]erge.*'
         ignore: ${{ inputs.ignore-workflows }}
 
