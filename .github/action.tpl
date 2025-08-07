@@ -12,11 +12,31 @@
 
 {{- $action := (datasource "action") -}}
 
+## Usage
+
+```yaml
+- name: {{ $action.name }}
+  uses: {{ "${{ github.repository }}" }}@{{ "${{ github.ref }}" }}
+  with:
+{{- range $key, $input := $action.inputs }}
+    {{- if (has $input "description") }}
+    # {{ $input.description }}
+    {{- end }}
+    {{ $key }}: {{ if (has $input "default") }}{{ $input.default }}{{ else }}'your-value-here'{{ end }}
+{{- end }}
+```
+
+## Example Workflow
+
+```yaml
+{{ file.Read ".github/workflows/example.yml" }}
+```
+
 ## Inputs
 
 {{- range $key, $input := $action.inputs }}
 
-### {{ tmpl.Exec "escape_chars" $key }}
+### {{ $key }}
 
 ![Required](https://img.shields.io/badge/Required-{{ if (has $input "required") }}{{ tmpl.Exec "sanitize_boolean" $input.required }}{{ else }}no{{ end }}-{{ if (has $input "required") }}{{ tmpl.Exec "boolean_color" $input.required }}{{ else }}inactive{{ end }}?style=flat-square)
 {{ if (has $input "default") }}![Default](https://img.shields.io/badge/Default-{{ tmpl.Exec "sanitize_url" $input.default }}-blue?style=flat-square){{ else }}![Default](https://img.shields.io/badge/Default-none-lightgrey?style=flat-square){{ end }}
@@ -29,7 +49,7 @@
 
 {{- range $key, $output := $action.outputs }}
 
-### {{ tmpl.Exec "escape_chars" $key }}
+### {{ $key }}
 
 ![Output](https://img.shields.io/badge/Output-{{ tmpl.Exec "sanitize_url" $key }}-green?style=flat-square)
 
@@ -37,43 +57,3 @@
 
 {{- end }}
 
-## Usage
-
-```yaml
-- name: {{ $action.name }}
-  uses: {{ "${{ github.repository }}" }}@{{ "${{ github.ref }}" }}
-  with:
-{{- range $key, $input := $action.inputs }}
-    {{ $key }}: {{ if (has $input "default") }}{{ $input.default }}{{ else }}'your-value-here'{{ end }}
-{{- end }}
-```
-
-## Example Workflow
-
-```yaml
-name: Auto-Merge Enhanced Processing
-
-on:
-  pull_request:
-    types: [auto_merge_enabled]
-
-jobs:
-  process-auto-merge:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: read
-      issues: read
-      checks: read
-      id-token: write
-    steps:
-      - name: {{ $action.name }}
-        uses: {{ "${{ github.repository }}" }}@v1
-        with:
-          github-token: {{ "${{ secrets.GITHUB_TOKEN }}" }}
-          # Choose ONE authentication method:
-          anthropic-api-key: {{ "${{ secrets.ANTHROPIC_API_KEY }}" }}
-          # claude-code-oauth-token: {{ "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}" }}
-          enable-claude-generation: true
-          check-timeout-seconds: 900
-```
