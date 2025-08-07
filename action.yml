@@ -193,8 +193,7 @@ runs:
       uses: actions/checkout@v4
       with:
         token: ${{ inputs.github-token }}
-        repository: ${{ github.event.pull_request.head.repo.full_name }}
-        ref: ${{ steps.validate-event.outputs.head_ref }}
+        ref: ${{ github.head_ref }}
         fetch-depth: 0
 
     - name: Analyze Commits and Extract Co-Authors
@@ -467,6 +466,7 @@ runs:
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
         files: '*'
+        force-push: true
 
     - name: Set Final Output
       id: set-output
