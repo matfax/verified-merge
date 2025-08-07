@@ -65,7 +65,7 @@ runs:
         AUTO_MERGE_COMMIT_MESSAGE="${{ github.event.pull_request.auto_merge.commit_message }}"
         AUTO_MERGE_COMMIT_TITLE="${{ github.event.pull_request.auto_merge.commit_title }}"
         MERGE_METHOD="${{ github.event.pull_request.auto_merge.merge_method }}"
-        BASE_REF="${{ github.event.pull_request.base.ref }}"
+        BASE_REF="${{ github.head_ref }}"
         HEAD_REF="${{ github.event.pull_request.head.ref }}"
         
         echo "Auto-merge enabled for PR #$PR_NUMBER"
@@ -467,6 +467,8 @@ runs:
         message: ${{ steps.prepare-message.outputs.commit-message }}
         files: '*'
         force-push: true
+        ref: ${{ github.head_ref }}
+        token: ${{ inputs.github-token }}
 
     - name: Set Final Output
       id: set-output
