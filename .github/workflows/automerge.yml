@@ -29,6 +29,3 @@ jobs:
           
           # Optional: Timeout for waiting for status checks in seconds (default: 900 = 15 minutes)
           check-timeout-seconds: 900
-          
-          # Optional: Allowed conventional commit types (default: feat,fix,docs,style,refactor,perf,test,chore)
-          conventional-commit-types: "feat,fix,docs,style,refactor,perf,test,chore,ci,build"
