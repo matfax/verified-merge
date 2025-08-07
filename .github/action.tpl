@@ -29,7 +29,7 @@
 ## Example Workflow
 
 ```yaml
-{{ file.Read ".github/workflows/example.yml" }}
+{{ file.Read ".github/workflows/automerge.yml" }}
 ```
 
 ## Inputs
