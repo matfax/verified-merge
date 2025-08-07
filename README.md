@@ -159,6 +159,157 @@ Create a `.github/commit-instructions.md` file in your repository to provide cus
 
 
 <!--- BEGIN_ACTION_DOCS --->
+## Usage
+
+```yaml
+- name: Auto-Merge Enhanced Commit Processor
+  uses: ${{ github.repository }}@${{ github.ref }}
+  with:
+    # Anthropic API key for Claude Code Action
+    anthropic-api-key: 'your-value-here'
+    # Maximum time to wait for all checks to complete (in seconds)
+    check-timeout-seconds: 900
+    # Claude Code OAuth token for Claude Code Action
+    claude-code-oauth-token: 'your-value-here'
+    # Allowed conventional commit types (comma-separated)
+    conventional-commit-types: feat,fix,docs,style,refactor,test,chore,ci,perf,build
+    # Enable Claude-powered commit message generation (fallback to auto_merge properties if false)
+    enable-claude-generation: true
+    # GitHub token for API access
+    github-token: ${{ github.token }}
+    # Workflow names to ignore when waiting for checks (comma-separated) - typically the workflow calling this action to prevent self-referential failures
+    ignore-workflows: Auto-Merge,Auto-merge,Automerge,auto-merge,automerge,Verified-Merge,Verified-merge,verified-merge,verifiedmerge
+```
+
+## Example Workflow
+
+```yaml
+name: Auto-Merge
+
+on:
+  pull_request:
+    types: [auto_merge_enabled]
+
+permissions:
+  contents: write      # Required for creating commits
+  pull-requests: read  # Required for reading PR details
+  issues: read        # Required for reading issue comments
+  checks: read        # Required for checking status checks
+  id-token: write      # Required for verified commit signing
+
+jobs:
+  helper:
+    name: Helper
+    environment: claude
+    runs-on: ubuntu-latest
+    steps:
+      - name: Enhanced Auto-Merge Processing
+        uses: matfax/verified-merge@main
+        with:
+          # Anthropic API key authentication (choose one)
+          # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          claude-code-oauth-token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          
+          # Optional: Enable/disable Claude generation (default: true)
+          enable-claude-generation: true
+          
+          # Optional: Timeout for waiting for status checks in seconds (default: 900 = 15 minutes)
+          check-timeout-seconds: 900
+          
+          # Optional: Allowed conventional commit types (default: feat,fix,docs,style,refactor,perf,test,chore)
+          conventional-commit-types: "feat,fix,docs,style,refactor,perf,test,chore,ci,build"
+
+```
+
+## Inputs
+
+### anthropic-api-key
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-none-lightgrey?style=flat-square)
+
+Anthropic API key for Claude Code Action
+
+### check-timeout-seconds
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-900-blue?style=flat-square)
+
+Maximum time to wait for all checks to complete (in seconds)
+
+### claude-code-oauth-token
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-none-lightgrey?style=flat-square)
+
+Claude Code OAuth token for Claude Code Action
+
+### conventional-commit-types
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-feat,fix,docs,style,refactor,test,chore,ci,perf,build-blue?style=flat-square)
+
+Allowed conventional commit types (comma-separated)
+
+### enable-claude-generation
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-true-blue?style=flat-square)
+
+Enable Claude-powered commit message generation (fallback to auto\_merge properties if false)
+
+### github-token
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-${{_github.token_}}-blue?style=flat-square)
+
+GitHub token for API access
+
+### ignore-workflows
+
+![Required](https://img.shields.io/badge/Required-no-inactive?style=flat-square)
+![Default](https://img.shields.io/badge/Default-Auto--Merge,Auto--merge,Automerge,auto--merge,automerge,Verified--Merge,Verified--merge,verified--merge,verifiedmerge-blue?style=flat-square)
+
+Workflow names to ignore when waiting for checks (comma-separated) - typically the workflow calling this action to prevent self-referential failures
+
+## Outputs
+
+### action_taken
+
+![Output](https://img.shields.io/badge/Output-action__taken-green?style=flat-square)
+
+Action taken (none, graceful-exit, co-signed, squash-generated)
+
+### checks_status
+
+![Output](https://img.shields.io/badge/Output-checks__status-green?style=flat-square)
+
+Status of all checks (passed, failed, timeout)
+
+### commit_sha
+
+![Output](https://img.shields.io/badge/Output-commit__sha-green?style=flat-square)
+
+SHA of the final commit (if modified)
+
+### failure_status
+
+![Output](https://img.shields.io/badge/Output-failure__status-green?style=flat-square)
+
+Indicates if any step failed (success, failure)
+
+### merge_method
+
+![Output](https://img.shields.io/badge/Output-merge__method-green?style=flat-square)
+
+The merge method used (merge, rebase, squash)
+
+### status_description
+
+![Output](https://img.shields.io/badge/Output-status__description-green?style=flat-square)
+
+Descriptive status message indicating what action was taken
+
 <!--- END_ACTION_DOCS --->
 
 ## Examples
