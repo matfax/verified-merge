@@ -38,7 +38,7 @@ jobs:
 2. **Generates intelligent commit messages** using Claude AI (or falls back to auto-merge settings)  
 3. **Preserves co-authors** from all commits being squashed/rebased
 4. **Creates signed commits** with github-actions[bot] as co-author
-5. **Exits gracefully** if checks fail or unsupported scenarios occur
+5. **Uses native GitHub logging** with proper exit codes for workflow status
 
 **Supported merge methods:** Squash (generates new message), Rebase (co-signs single commits), Merge (no action needed)
 
@@ -48,9 +48,9 @@ jobs:
 
 1. **Event Trigger**: Action runs when `auto_merge_enabled` event is fired
 2. **Check Waiting**: Waits for all CI/CD checks to complete (with configurable timeout)
-3. **Exit Strategy**: If checks fail or timeout, exits gracefully with code 0
+3. **Exit Strategy**: If checks fail or timeout, workflow fails with exit code 1 and appropriate logging
 4. **Merge Method Processing**:
-   - **`merge`**: No action needed, exits gracefully
+   - **`merge`**: No action needed, exits gracefully with exit code 0
    - **`rebase`**: Co-signs any unsigned commits
    - **`squash`**: Generates intelligent commit message using Claude
 
@@ -105,17 +105,14 @@ To ensure the action works properly with GitHub's auto-merge feature, you need t
    - Add or edit a branch protection rule for your main branch
    - Check ✅ **"Require signed commits"**
 
-2. **Deploy and Test First**:
-   - Create a test PR and enable auto-merge to trigger the action once
-   - This creates the initial "Auto-Merge Helper" status check
-
-3. **Enable Required Status Checks**:
-   - Return to the same branch protection rule
+2. **Add the Workflow as a Required Check**:
+   - In the same branch protection rule
    - Check ✅ **"Require status checks to pass before merging"**
-   - In the status checks list, select **"Auto-Merge Helper"**
+   - In the status checks list, search for and select your workflow name (e.g., "Auto-Merge Helper")
+   - It is possible that the workflow needs to run at least once before it appears in the list
    - Optionally check "Require branches to be up to date before merging"
 
-> **Important**: The status check "Auto-Merge Helper" only appears after the action runs at least once. Deploy the workflow first, then configure the branch protection rule.
+> **Note**: The workflow itself acts as the status check - no separate status check configuration is needed.
 
 ### Advanced Configuration
 
@@ -194,7 +191,6 @@ permissions:
   contents: write      # Required for creating commits
   pull-requests: read  # Required for reading PR details
   issues: read         # Required for reading issue comments
-  statuses: write      # Required for publishing the final status
   checks: read         # Required for checking status checks
   id-token: write      # Required for Claude OIDC
 
@@ -290,23 +286,11 @@ Status of all checks (passed, failed, timeout)
 
 SHA of the final commit (if modified)
 
-### failure_status
-
-![Output](https://img.shields.io/badge/Output-failure__status-green?style=flat-square)
-
-Indicates if any step failed (success, failure)
-
 ### merge_method
 
 ![Output](https://img.shields.io/badge/Output-merge__method-green?style=flat-square)
 
 The merge method used (merge, rebase, squash)
-
-### status_description
-
-![Output](https://img.shields.io/badge/Output-status__description-green?style=flat-square)
-
-Descriptive status message indicating what action was taken
 
 <!--- END_ACTION_DOCS --->
 
@@ -381,6 +365,7 @@ on:
 - Increase `check-timeout-seconds` parameter
 - Ensure all required checks are configured correctly
 - Check that CI/CD workflows complete successfully
+- Note: Action will fail (exit 1) if checks timeout, preventing auto-merge
 
 ### Claude API Errors
 
@@ -401,8 +386,8 @@ on:
 
 ### Rebase Limitations
 
-**Issue**: "Exiting gracefully - rebase with multiple commits not supported"
-**Solution**: This is expected behavior. The action only handles simple rebase cases (1 unsigned commit). For complex rebases, it exits gracefully to avoid complications.
+**Issue**: "Rebase processing not needed or not supported"  
+**Solution**: This is expected behavior. The action only handles simple rebase cases (1 unsigned commit). For complex rebases, it exits gracefully (exit 0) to avoid complications.
 
 ### Permission Errors
 
@@ -419,4 +404,13 @@ This composite action uses the following GitHub Actions:
 - [`anthropics/claude-code-action`](https://github.com/anthropics/claude-code-action) - Claude AI integration
 - [`iarekylew00t/verified-bot-commit`](https://github.com/iarekylew00t/verified-bot-commit) - Create signed commits
 - [`actions/checkout`](https://github.com/actions/checkout) - Repository checkout
-- [`guibranco/github-status-action-v2`](https://github.com/guibranco/github-status-action-v2) - Set commit status checks
+
+## Logging and Exit Codes
+
+The action uses GitHub Actions native logging commands and proper exit codes:
+
+- **`::notice::`** - Informational messages (graceful exits, skipped actions)
+- **`::warning::`** - Non-critical issues (failed to fetch comments, timeouts)
+- **`::error::`** - Critical failures that should fail the workflow
+- **Exit Code 0** - Success or graceful skip
+- **Exit Code 1** - Failure (prevents auto-merge)

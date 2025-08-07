@@ -12,9 +12,9 @@ This is a GitHub Action called "Verified Auto-Merge" that triggers on `auto_merg
 The action follows an enhanced workflow:
 1. **Validate Auto-Merge Event**: Extracts auto-merge properties (commit_title, commit_message, merge_method)
 2. **Wait for All Checks**: Uses `poseidon/wait-for-status-checks@v0.6.0` with configurable timeout (default 15min)
-3. **Early Exit for Failed Checks**: Exits gracefully with code 0 if any checks fail
+3. **Early Exit for Failed Checks**: Fails workflow with exit code 1 and appropriate logging if any checks fail
 4. **Handle Merge Method Logic**: Routes processing based on merge method:
-   - `merge`: No action needed (graceful exit)
+   - `merge`: No action needed (graceful exit with code 0)
    - `rebase`: Co-signs unsigned commits (simple case only - 1 commit)
    - `squash`: Generates AI commit message with co-author preservation
 5. **Checkout Repository**: Fetches full git history for analysis
@@ -60,12 +60,13 @@ User-facing documentation explaining the auto-merge enhancement workflow, setup 
 
 ### GitHub Actions Specifics
 - Event trigger: `pull_request` with `types: [auto_merge_enabled]`
-- Required permissions: `contents: write`, `pull-requests: read`, `issues: read`, `checks: read`
+- Required permissions: `contents: write`, `pull-requests: read`, `issues: read`, `checks: read`, `id-token: write`
 - Uses `poseidon/wait-for-status-checks@v0.6.0` for check waiting
 - Uses `iarekylew00t/verified-bot-commit@v1` for signed commits
 - Uses `anthropics/claude-code-action` for AI commit generation
 - Supports API key and OAuth token authentication for Claude integration
-- Outputs with hyphens must be referenced with bracket notation
+- Uses GitHub Actions native logging (`::notice::`, `::warning::`, `::error::`) and exit codes
+- No longer uses external status check actions - relies on workflow status itself
 
 ### Action Input Parameters
 - `anthropic-api-key`: Anthropic API key for Claude Code Action (optional)
@@ -75,12 +76,10 @@ User-facing documentation explaining the auto-merge enhancement workflow, setup 
 - `conventional-commit-types`: Allowed commit types (comma-separated)
 
 ### Exit Strategies
-The action has multiple graceful exit points:
-- Wrong event type
-- Checks timeout or fail
-- Merge method is 'merge' (no action needed)
-- Complex rebase scenarios (multiple unsigned commits)
-- Missing authentication for Claude generation (falls back to auto_merge properties)
+The action has multiple exit points with appropriate logging and exit codes:
+- **Exit 0 (Success/Skip)**: Wrong event type, merge method is 'merge', complex rebase scenarios, missing authentication (falls back to auto_merge properties)
+- **Exit 1 (Failure)**: Checks timeout or fail, git operation failures, API errors, configuration loading failures
+- **GitHub Actions Logging**: Uses `::notice::`, `::warning::`, and `::error::` commands for proper workflow visibility
 
 ## Development Notes
 
@@ -103,10 +102,11 @@ The action supports two Claude authentication approaches:
 
 ### When Making Changes
 - Test action logic with different merge methods (merge/rebase/squash)
-- Verify output variable naming (hyphens vs underscores) - use bracket notation
+- Verify exit codes: 0 for success/skip, 1 for failures that should prevent auto-merge
+- Test GitHub Actions logging commands (`::notice::`, `::warning::`, `::error::`)
 - Ensure configuration file loading works for both primary and fallback scenarios
 - Test both authentication methods (API key and OAuth token)
 - Validate co-author extraction from git log output (grep "Co-authored-by:")
-- Ensure graceful exits return code 0, actual errors return non-zero
 - Test Claude generation vs auto_merge fallback scenarios
 - Verify git operations work correctly with different commit histories
+- Ensure proper workflow failure handling (exit 1) for critical errors

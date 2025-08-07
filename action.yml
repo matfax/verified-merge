@@ -43,12 +43,6 @@ outputs:
   checks_status:
     description: 'Status of all checks (passed, failed, timeout)'
     value: ${{ steps.wait-for-checks.outcome }}
-  failure_status:
-    description: 'Indicates if any step failed (success, failure)'
-    value: ${{ steps.set-failure-status.outputs.failure_status || 'success' }}
-  status_description:
-    description: 'Descriptive status message indicating what action was taken'
-    value: ${{ steps.set-failure-status.outputs.status_description || 'Unknown status' }}
 
 runs:
   using: 'composite'
@@ -61,9 +55,8 @@ runs:
         
         # Verify this is an auto_merge_enabled event
         if [ "${{ github.event_name }}" != "pull_request" ] || [ "${{ github.event.action }}" != "auto_merge_enabled" ]; then
-          echo "Not an auto_merge_enabled event, exiting gracefully"
+          echo "::notice::Not an auto_merge_enabled event, exiting gracefully"
           echo "event-valid=false" >> $GITHUB_OUTPUT
-          echo "status_description=Skipped - Not an auto_merge_enabled event" >> $GITHUB_OUTPUT
           exit 0
         fi
         
@@ -106,10 +99,16 @@ runs:
       if: steps.wait-for-checks.outcome != 'success'
       shell: bash
       run: |
-        echo "Exiting gracefully - checks did not pass or timed out"
-        echo "Status: ${{ steps.wait-for-checks.outcome }}"
-        echo "status_description=Skipped - Checks did not pass or timed out" >> $GITHUB_OUTPUT
-        exit 0
+        if [ "${{ steps.wait-for-checks.outcome }}" = "failure" ]; then
+          echo "::error::Checks failed - cannot proceed with auto-merge"
+          exit 1
+        elif [ "${{ steps.wait-for-checks.outcome }}" = "timed_out" ]; then
+          echo "::warning::Checks timed out after ${{ inputs.check-timeout-seconds }} seconds"
+          exit 1
+        else
+          echo "::warning::Checks did not complete successfully (status: ${{ steps.wait-for-checks.outcome }})"
+          exit 1
+        fi
 
     - name: Handle Merge Method Logic
       id: merge-logic
@@ -122,7 +121,7 @@ runs:
         
         case "$MERGE_METHOD" in
           "merge")
-            echo "Merge method is 'merge' - no action needed, exiting gracefully"
+            echo "::notice::Merge method is 'merge' - no action needed, exiting gracefully"
             echo "action-needed=false" >> $GITHUB_OUTPUT
             echo "reason=merge-method-no-action" >> $GITHUB_OUTPUT
             ;;
@@ -137,7 +136,7 @@ runs:
             echo "action-type=squash" >> $GITHUB_OUTPUT
             ;;
           *)
-            echo "Unknown merge method: $MERGE_METHOD"
+            echo "::warning::Unknown merge method: $MERGE_METHOD"
             echo "action-needed=false" >> $GITHUB_OUTPUT
             echo "reason=unknown-merge-method" >> $GITHUB_OUTPUT
             ;;
@@ -148,13 +147,8 @@ runs:
       if: steps.merge-logic.outputs.action-needed == 'false'
       shell: bash
       run: |
-        echo "No action needed for this merge method or configuration"
+        echo "::notice::No action needed for this merge method or configuration"
         echo "Reason: ${{ steps.merge-logic.outputs.reason }}"
-        if [ "${{ steps.merge-logic.outputs.reason }}" = "merge-method-no-action" ]; then
-          echo "status_description=Skipped - Merge method requires no action" >> $GITHUB_OUTPUT
-        else
-          echo "status_description=Skipped - Unknown merge method" >> $GITHUB_OUTPUT
-        fi
         exit 0
 
     - name: Validate Authentication
@@ -166,7 +160,7 @@ runs:
         
         # Check if Claude generation is enabled
         if [ "${{ inputs.enable-claude-generation }}" != "true" ]; then
-          echo "Claude generation disabled, will use auto-merge fallback"
+          echo "::notice::Claude generation disabled, will use auto-merge fallback"
           echo "auth-valid=false" >> $GITHUB_OUTPUT
           echo "reason=disabled" >> $GITHUB_OUTPUT
           exit 0
@@ -189,7 +183,7 @@ runs:
           echo "Authentication available for Claude generation"
           echo "auth-valid=true" >> $GITHUB_OUTPUT
         else
-          echo "No valid authentication found for Claude generation, will use auto-merge fallback"
+          echo "::notice::No valid authentication found for Claude generation, will use auto-merge fallback"
           echo "auth-valid=false" >> $GITHUB_OUTPUT
           echo "reason=no-auth" >> $GITHUB_OUTPUT
         fi
@@ -291,10 +285,8 @@ runs:
         CONFIG_CONTENT=""
         if gh api repos/${{ github.repository }}/contents/.github/commit-instructions.md --silent 2>/dev/null; then
           if ! CONFIG_CONTENT=$(gh api repos/${{ github.repository }}/contents/.github/commit-instructions.md --jq '.content' 2>/dev/null | base64 -d 2>/dev/null); then
-            echo "Error: Failed to decode repository commit instructions"
-            echo "Using fallback instructions instead"
-            CONFIG_CONTENT=$(cat "${{ github.action_path }}/default-commit-instructions.md")
-            echo "has-config=fallback" >> $GITHUB_OUTPUT
+            echo "::error::Failed to decode repository commit instructions"
+            exit 1
           else
             echo "Found repository commit instructions file"
             echo "has-config=true" >> $GITHUB_OUTPUT
@@ -303,10 +295,8 @@ runs:
           echo "No repository commit instructions found, using action's fallback instructions"
           # Read the fallback instructions from this action's repository
           if ! CONFIG_CONTENT=$(cat "${{ github.action_path }}/default-commit-instructions.md"); then
-            echo "Error: Failed to read fallback commit instructions"
-            echo "has-error=true" >> $GITHUB_OUTPUT
-            echo "status_description=Failed - Could not read commit instructions" >> $GITHUB_OUTPUT
-            exit 0
+            echo "::error::Failed to read fallback commit instructions"
+            exit 1
           fi
           echo "has-config=fallback" >> $GITHUB_OUTPUT
         fi
@@ -329,10 +319,8 @@ runs:
         
         # Get PR details with error handling
         if ! PR_DATA=$(gh api repos/${{ github.repository }}/pulls/$PR_NUMBER 2>/dev/null); then
-          echo "Error: Failed to fetch PR data"
-          echo "has-error=true" >> $GITHUB_OUTPUT
-          echo "status_description=Failed - Could not fetch PR data" >> $GITHUB_OUTPUT
-          exit 0
+          echo "::error::Failed to fetch PR data"
+          exit 1
         fi
         
         PR_TITLE=$(echo "$PR_DATA" | jq -r '.title')
@@ -340,7 +328,7 @@ runs:
         
         # Get PR comments (including bot feedback) with error handling
         if ! COMMENTS=$(gh api repos/${{ github.repository }}/issues/$PR_NUMBER/comments --jq '.[].body' 2>/dev/null); then
-          echo "Warning: Failed to fetch PR comments, proceeding without them"
+          echo "::warning::Failed to fetch PR comments, proceeding without them"
           COMMENTS=""
         fi
         
@@ -436,10 +424,8 @@ runs:
         
         # Soft reset to uncomit the latest commit but keep changes staged
         if ! git reset --soft HEAD~1; then
-          echo "Error: Failed to reset commit for rebase"
-          echo "has-error=true" >> $GITHUB_OUTPUT
-          echo "status_description=Failed - Git reset failed for rebase" >> $GITHUB_OUTPUT
-          exit 0
+          echo "::error::Failed to reset commit for rebase"
+          exit 1
         fi
         
         echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
@@ -455,10 +441,8 @@ runs:
         
         # Reset to base branch, keeping all changes staged
         if ! git reset --soft "origin/${BASE_REF}"; then
-          echo "Error: Failed to reset to base branch for squash"
-          echo "has-error=true" >> $GITHUB_OUTPUT
-          echo "status_description=Failed - Git reset failed for squash" >> $GITHUB_OUTPUT
-          exit 0
+          echo "::error::Failed to reset to base branch for squash"
+          exit 1
         fi
         
         echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
@@ -469,26 +453,15 @@ runs:
       shell: bash
       run: |
         REASON="${{ steps.analyze-commits.outputs.cosign-reason }}"
-        echo "Exiting gracefully - rebase processing not needed or not supported"
+        echo "::notice::Rebase processing not needed or not supported"
         echo "Reason: $REASON"
         echo "Commit count: ${{ steps.analyze-commits.outputs.commit-count }}"
         
-        case "$REASON" in
-          "already-cosigned")
-            echo "status_description=Skipped - Commit already properly signed and co-signed" >> $GITHUB_OUTPUT
-            ;;
-          "multiple-commits")
-            echo "status_description=Skipped - Rebase with multiple commits not supported" >> $GITHUB_OUTPUT
-            ;;
-          *)
-            echo "status_description=Skipped - Rebase not applicable" >> $GITHUB_OUTPUT
-            ;;
-        esac
         exit 0
 
     - name: Create Signed Commit
       id: create-commit
-      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit') && steps.load-config.outputs.has-error != 'true' && steps.analyze-context.outputs.has-error != 'true' && steps.process-rebase.outputs.has-error != 'true' && steps.process-squash.outputs.has-error != 'true'
+      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit')
       uses: iarekylew00t/verified-bot-commit@v1
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
@@ -502,69 +475,12 @@ runs:
         ACTION_TYPE="${{ steps.merge-logic.outputs.action-type }}"
         
         if [ "$ACTION_TYPE" = "rebase" ]; then
+          echo "::notice::Co-signed commit created"
           echo "action_taken=co-signed" >> $GITHUB_OUTPUT
-          echo "status_description=Co-signed commit created" >> $GITHUB_OUTPUT
         elif [ "$ACTION_TYPE" = "squash" ]; then
+          echo "::notice::Squash commit created"
           echo "action_taken=squash-generated" >> $GITHUB_OUTPUT
-          echo "status_description=Squash commit created" >> $GITHUB_OUTPUT
         fi
-    
-    - name: Set Failure Status
-      id: set-failure-status
-      if: always()
-      shell: bash
-      run: |
-        # Collect status description from various steps
-        STATUS_DESCRIPTION=""
-        STATUS_STATE="success"
-        
-        # Check for error states first
-        if [ "${{ steps.load-config.outputs.has-error }}" = "true" ] || \
-           [ "${{ steps.analyze-context.outputs.has-error }}" = "true" ] || \
-           [ "${{ steps.process-rebase.outputs.has-error }}" = "true" ] || \
-           [ "${{ steps.process-squash.outputs.has-error }}" = "true" ]; then
-          STATUS_STATE="failure"
-          # Get the specific error description
-          if [ "${{ steps.load-config.outputs.status_description }}" != "" ]; then
-            STATUS_DESCRIPTION="${{ steps.load-config.outputs.status_description }}"
-          elif [ "${{ steps.analyze-context.outputs.status_description }}" != "" ]; then
-            STATUS_DESCRIPTION="${{ steps.analyze-context.outputs.status_description }}"
-          elif [ "${{ steps.process-rebase.outputs.status_description }}" != "" ]; then
-            STATUS_DESCRIPTION="${{ steps.process-rebase.outputs.status_description }}"
-          elif [ "${{ steps.process-squash.outputs.status_description }}" != "" ]; then
-            STATUS_DESCRIPTION="${{ steps.process-squash.outputs.status_description }}"
-          else
-            STATUS_DESCRIPTION="Failed - Unknown error occurred"
-          fi
-        # Check for successful completion
-        elif [ "${{ steps.set-output.outputs.status_description }}" != "" ]; then
-          STATUS_DESCRIPTION="${{ steps.set-output.outputs.status_description }}"
-        # Check for early exits/skips
-        elif [ "${{ steps.validate-event.outputs.status_description }}" != "" ]; then
-          STATUS_DESCRIPTION="${{ steps.validate-event.outputs.status_description }}"
-        elif [ "${{ steps.early-exit-checks.outputs.status_description }}" != "" ]; then
-          STATUS_DESCRIPTION="${{ steps.early-exit-checks.outputs.status_description }}"
-        elif [ "${{ steps.early-exit-no-action.outputs.status_description }}" != "" ]; then
-          STATUS_DESCRIPTION="${{ steps.early-exit-no-action.outputs.status_description }}"
-        elif [ "${{ steps.early-exit-rebase-complex.outputs.status_description }}" != "" ]; then
-          STATUS_DESCRIPTION="${{ steps.early-exit-rebase-complex.outputs.status_description }}"
-        else
-          STATUS_DESCRIPTION="Processed - No commit changes needed"
-        fi
-        
-        echo "Status: $STATUS_DESCRIPTION"
-        echo "failure_status=$STATUS_STATE" >> $GITHUB_OUTPUT
-        echo "status_description=$STATUS_DESCRIPTION" >> $GITHUB_OUTPUT
-    
-    - name: Add Status Check
-      uses: guibranco/github-status-action-v2@0849440ec82c5fa69b2377725b9b7852a3977e76 # v1.1.13
-      if: always()
-      with: 
-        authToken: ${{ inputs.github-token }}
-        context: 'Auto-Merge Helper'
-        description: ${{ steps.set-failure-status.outputs.status_description }}
-        state: ${{ steps.set-failure-status.outputs.failure_status }}
-        sha: ${{github.event.pull_request.head.sha || github.sha}}
 
 branding:
   icon: 'git-merge'

@@ -8,7 +8,6 @@ permissions:
   contents: write      # Required for creating commits
   pull-requests: read  # Required for reading PR details
   issues: read         # Required for reading issue comments
-  statuses: write      # Required for publishing the final status
   checks: read         # Required for checking status checks
   id-token: write      # Required for Claude OIDC
 
