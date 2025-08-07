@@ -28,7 +28,7 @@ inputs:
   ignore-workflows:
     description: 'Workflow names to ignore when waiting for checks (comma-separated) - typically the workflow calling this action to prevent self-referential failures'
     required: false
-    default: 'Auto-Merge,Automerge,automerge,verified-merge,verifiedmerge'
+    default: 'Auto-Merge,Auto-merge,Automerge,auto-merge,automerge,Verified-Merge,Verified-merge,verified-merge,verifiedmerge'
 
 outputs:
   action_taken:
@@ -98,7 +98,7 @@ runs:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
         interval: 30
-        ignore_pattern: Auto-Merge.*
+        ignore_pattern: '[Aa]uto-[Mm]erge.*'
         ignore: ${{ inputs.ignore-workflows }}
 
     - name: Early Exit for Failed Checks
