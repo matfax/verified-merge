@@ -98,7 +98,7 @@ runs:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
         interval: 30
-        ignore_pattern: Auto-Merge*
+        ignore_pattern: Auto-Merge.*
         ignore: ${{ inputs.ignore-workflows }}
 
     - name: Early Exit for Failed Checks
