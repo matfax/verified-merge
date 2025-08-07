@@ -194,8 +194,8 @@ permissions:
   contents: write      # Required for creating commits
   pull-requests: read  # Required for reading PR details
   issues: read        # Required for reading issue comments
-  checks: read        # Required for checking status checks
-  id-token: write      # Required for verified commit signing
+  checks: write        # Required for checking and setting status checks
+  id-token: write      # Required for Claude OIDC
 
 jobs:
   automerge-helper:
@@ -215,9 +215,6 @@ jobs:
           
           # Optional: Timeout for waiting for status checks in seconds (default: 900 = 15 minutes)
           check-timeout-seconds: 900
-          
-          # Optional: Allowed conventional commit types (default: feat,fix,docs,style,refactor,perf,test,chore)
-          conventional-commit-types: "feat,fix,docs,style,refactor,perf,test,chore,ci,build"
 
 ```
 
