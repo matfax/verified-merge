@@ -346,7 +346,7 @@ runs:
     - name: Generate Commit Message with Claude
       id: generate-message
       if: steps.merge-logic.outputs.action-type == 'squash' && steps.validate-auth.outputs.auth-valid == 'true'
-      uses: anthropics/claude-code-action@b39377f9bcc6f88c9cd3e00e08f5423febff8dc5 # v0.0.52
+      uses: anthropics/claude-code-action@15db2b3c79c0681556c056e9bc3f61fd3fc0347d # v0.0.54
       with:
         anthropic_api_key: ${{ inputs.anthropic-api-key }}
         claude_code_oauth_token: ${{ inputs.claude-code-oauth-token }}
