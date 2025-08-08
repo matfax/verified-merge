@@ -86,7 +86,7 @@ runs:
     - name: Wait for All Checks
       id: wait-for-checks
       if: steps.validate-event.outputs.event-valid == 'true'
-      uses: poseidon/wait-for-status-checks@v0.6.0
+      uses: poseidon/wait-for-status-checks@899c768d191b56eef585c18f8558da19e1f3e707 # v0.6.0
       with:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
@@ -190,7 +190,7 @@ runs:
 
     - name: Checkout Repository
       if: steps.merge-logic.outputs.action-needed == 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
       with:
         token: ${{ inputs.github-token }}
         ref: ${{ github.head_ref }}
@@ -514,7 +514,7 @@ runs:
     - name: Create Signed Commit
       id: create-commit
       if: steps.process-squash.outputs.action-taken == 'ready-for-commit'
-      uses: iarekylew00t/verified-bot-commit@v1
+      uses: iarekylew00t/verified-bot-commit@cc09d455be3e20eb6b1c3d1c30a5221f9475aa10 # v1
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
         files: '*'
