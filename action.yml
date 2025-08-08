@@ -422,13 +422,65 @@ runs:
       run: |
         echo "Processing rebase co-signing for single unsigned commit..."
         
+        # Extract original commit information
+        ORIGINAL_AUTHOR=$(git log -1 --pretty=format:"%an <%ae>")
+        ORIGINAL_DATE=$(git log -1 --pretty=format:"%ad")
+        ORIGINAL_MESSAGE=$(git log -1 --pretty=format:"%B")
+        
+        echo "Original author: $ORIGINAL_AUTHOR"
+        echo "Original date: $ORIGINAL_DATE"
+        echo "Original message length: ${#ORIGINAL_MESSAGE} characters"
+        
+        # Extract existing co-authors from the original commit
+        EXISTING_CO_AUTHORS=$(echo "$ORIGINAL_MESSAGE" | grep "Co-authored-by:" || true)
+        
+        # Prepare new co-author line for github-actions[bot]
+        GITHUB_BOT_COAUTHOR="Co-authored-by: github-actions[bot] <41898282+github-actions[bot]@users.noreply.github.com>"
+        
+        # Build the complete message with all co-authors
+        # First, get the message without any existing co-authored-by lines
+        BASE_MESSAGE=$(echo "$ORIGINAL_MESSAGE" | sed '/^Co-authored-by:/d' | sed '/^$/N;/^\n$/d')
+        
+        # Combine all co-authors (existing + github bot)
+        if [ -n "$EXISTING_CO_AUTHORS" ]; then
+          ALL_CO_AUTHORS=$(printf "%s\n%s" "$EXISTING_CO_AUTHORS" "$GITHUB_BOT_COAUTHOR")
+        else
+          ALL_CO_AUTHORS="$GITHUB_BOT_COAUTHOR"
+        fi
+        
+        # Build final commit message
+        if [ -n "$ALL_CO_AUTHORS" ]; then
+          FINAL_MESSAGE=$(printf "%s\n\n%s" "$BASE_MESSAGE" "$ALL_CO_AUTHORS")
+        else
+          FINAL_MESSAGE="$BASE_MESSAGE"
+        fi
+        
+        echo "Final co-authors to include:"
+        echo "$ALL_CO_AUTHORS"
+        
         # Soft reset to uncomit the latest commit but keep changes staged
         if ! git reset --soft HEAD~1; then
           echo "::error::Failed to reset commit for rebase"
           exit 1
         fi
         
-        echo "action-taken=ready-for-commit" >> $GITHUB_OUTPUT
+        # Create new verified commit with preserved authorship
+        if ! git -c user.name="github-actions[bot]" \
+                 -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+                 commit -S --author="$ORIGINAL_AUTHOR" --date="$ORIGINAL_DATE" \
+                 --message="$FINAL_MESSAGE"; then
+          echo "::error::Failed to create verified commit"
+          exit 1
+        fi
+        
+        # Force push the updated branch
+        if ! git push --force-with-lease origin HEAD:${{ github.head_ref }}; then
+          echo "::error::Failed to push verified commit"
+          exit 1
+        fi
+        
+        echo "✅ Successfully created verified commit with preserved authorship"
+        echo "action-taken=completed" >> $GITHUB_OUTPUT
 
     - name: Process Squash
       id: process-squash
@@ -461,7 +513,7 @@ runs:
 
     - name: Create Signed Commit
       id: create-commit
-      if: (steps.process-rebase.outputs.action-taken == 'ready-for-commit' || steps.process-squash.outputs.action-taken == 'ready-for-commit')
+      if: steps.process-squash.outputs.action-taken == 'ready-for-commit'
       uses: iarekylew00t/verified-bot-commit@v1
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
@@ -472,13 +524,13 @@ runs:
 
     - name: Set Final Output
       id: set-output
-      if: steps.create-commit.outputs.commit-sha != ''
+      if: (steps.process-rebase.outputs.action-taken == 'completed' || steps.create-commit.outputs.commit-sha != '')
       shell: bash
       run: |
         ACTION_TYPE="${{ steps.merge-logic.outputs.action-type }}"
         
         if [ "$ACTION_TYPE" = "rebase" ]; then
-          echo "::notice::Co-signed commit created"
+          echo "::notice::Co-signed commit created with preserved authorship"
           echo "action_taken=co-signed" >> $GITHUB_OUTPUT
         elif [ "$ACTION_TYPE" = "squash" ]; then
           echo "::notice::Squash commit created"
