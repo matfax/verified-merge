@@ -190,7 +190,7 @@ runs:
 
     - name: Checkout Repository
       if: steps.merge-logic.outputs.action-needed == 'true'
-      uses: actions/checkout@v4
+      uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5
       with:
         token: ${{ inputs.github-token }}
         ref: ${{ github.head_ref }}
