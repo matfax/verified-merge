@@ -30,7 +30,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
         with:
           ## This head ref is required to enable pushes to pull request branches
           ref: ${{ github.head_ref || github.ref_name }}
