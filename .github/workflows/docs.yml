@@ -30,7 +30,7 @@ jobs:
       issues: write
     steps:
       - name: Checkout Repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ## This head ref is required to enable pushes to pull request branches
           ref: ${{ github.head_ref || github.ref_name }}
@@ -40,7 +40,7 @@ jobs:
 
       - name: Commit Changes
         if: ${{ github.event_name != 'push' }}
-        uses: iarekylew00t/verified-bot-commit@v1
+        uses: iarekylew00t/verified-bot-commit@cd576ea029efdd8044bffb27a9d13b464f1bf9fe # v1
         with:
           files: '**/*.md'
           if-no-commit: notice
@@ -51,7 +51,7 @@ jobs:
 
       - name: Create Pull Request
         if: ${{ github.event_name == 'push' }}
-        uses: peter-evans/create-pull-request@v7.0.8
+        uses: peter-evans/create-pull-request@271a8d0340265f705b14b6d32b9829c1cb33d45e # v7.0.8
         with:
           title: 'docs: Update action documentation'
           sign-commits: true
