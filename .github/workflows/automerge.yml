@@ -18,7 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Enhanced Auto-Merge Processing
-        uses: matfax/verified-merge@main
+        uses: matfax/verified-merge@2c32d2a47b7e40080f8a78761dcd5c35e8c240f1 # main
         with:
           # Anthropic API key authentication (choose one)
           # anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
