@@ -86,7 +86,7 @@ runs:
     - name: Wait for All Checks
       id: wait-for-checks
       if: steps.validate-event.outputs.event-valid == 'true'
-      uses: poseidon/wait-for-status-checks@v0.6.0
+      uses: poseidon/wait-for-status-checks@e7e24423722c5b8e97a6dd5848827d2a412f812d # v0.7.0
       with:
         token: ${{ inputs.github-token }}
         timeout: ${{ inputs.check-timeout-seconds }}
