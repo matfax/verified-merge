@@ -514,7 +514,7 @@ runs:
     - name: Create Signed Commit
       id: create-commit
       if: steps.process-squash.outputs.action-taken == 'ready-for-commit'
-      uses: iarekylew00t/verified-bot-commit@v1
+      uses: iarekylew00t/verified-bot-commit@1ee4374942e5c5f814e9b3121d766cbe45cea360 # v2
       with:
         message: ${{ steps.prepare-message.outputs.commit-message }}
         files: '*'
