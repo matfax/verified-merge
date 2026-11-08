@@ -40,7 +40,7 @@ jobs:
 
       - name: Commit Changes
         if: ${{ github.event_name != 'push' }}
-        uses: iarekylew00t/verified-bot-commit@v1
+        uses: iarekylew00t/verified-bot-commit@3a1e72c2443cce5574f76a9b2bb36e355d667743 # v2
         with:
           files: '**/*.md'
           if-no-commit: notice
