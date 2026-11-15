@@ -51,7 +51,7 @@ jobs:
 
       - name: Create Pull Request
         if: ${{ github.event_name == 'push' }}
-        uses: peter-evans/create-pull-request@v7.0.8
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         with:
           title: 'docs: Update action documentation'
           sign-commits: true
